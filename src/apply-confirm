@@ -1,0 +1,186 @@
+#!/bin/sh
+# apply-confirm: commit-confirmed-apply rollback supervisor CLI.
+# See docs/cli-contract.md for the subcommands and the exit-code contract.
+
+if [ -f /usr/lib/apply-confirm/common.sh ]; then
+	AC_LIB=/usr/lib/apply-confirm
+else
+	AC_LIB="${AC_LIB:-$(dirname "$0")/lib}"
+fi
+. "$AC_LIB/common.sh"
+. "$AC_LIB/state.sh"
+. "$AC_LIB/snapshot.sh"
+. "$AC_LIB/supervise.sh"
+. "$AC_LIB/recover.sh"
+
+JSON=""
+
+usage() {
+	cat >&2 <<EOF
+Usage:
+  apply-confirm stage [--timeout N] --package PKG [--package PKG...] [--service SVC...] [--reason TEXT]
+  apply-confirm ack TOKEN
+  apply-confirm rollback [TOKEN]
+  apply-confirm status [TOKEN] [--json]
+  apply-confirm list [--json]
+
+Exit codes: 0 ok, 2 usage, 3 already-armed, 4 no-such-token/window-closed,
+            5 rollback-done-but-reload-failed, 6 internal.
+EOF
+}
+
+cmd_stage() {
+	local timeout="$AC_DEFAULT_TIMEOUT" packages="" services="" reason="stage"
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--timeout) timeout="$2"; shift 2 ;;
+			--package) packages="$packages $2"; shift 2 ;;
+			--service) services="$services $2"; shift 2 ;;
+			--reason)  reason="$2"; shift 2 ;;
+			*) usage; return 2 ;;
+		esac
+	done
+	packages="${packages# }"; services="${services# }"
+	# reason is free text but lands in a line-oriented file, so it must stay one
+	# line; collapse any newline to a space.
+	reason=$(printf '%s' "$reason" | tr '\n' ' ')
+
+	case "$timeout" in ''|*[!0-9]*) echo "timeout must be a positive integer" >&2; return 2 ;; esac
+	[ "$timeout" -ge 1 ] || { echo "timeout must be >= 1" >&2; return 2; }
+	[ "$timeout" -le "$AC_MAX_TIMEOUT" ] || timeout="$AC_MAX_TIMEOUT"
+	[ -n "$packages" ] || { echo "at least one --package is required" >&2; return 2; }
+	[ -n "$services" ] || services=$(ac_services_for "$packages")
+
+	exec 9>"$AC_LOCK"
+	flock 9
+	local existing
+	existing=$(ac_find_armed) && {
+		echo "an apply is already armed: $existing" >&2
+		flock -u 9
+		return 3
+	}
+
+	local token sd now up deadline deadline_mono pkg
+	token=$(ac_new_token)
+	sd=$(ac_snap_dir "$token")
+	mkdir -p "$sd" || { flock -u 9; return 6; }
+
+	for pkg in $packages; do
+		ac_snapshot_pkg "$pkg" "$sd" || {
+			ac_log "stage: failed to snapshot $pkg, not arming"
+			rm -rf "$sd"
+			flock -u 9
+			return 6
+		}
+	done
+
+	now=$(ac_now); up=$(ac_uptime)
+	deadline=$(( now + timeout ))
+	deadline_mono=$(( up + timeout ))
+
+	# Snapshot files are on disk; the .state landing is the commit point.
+	ac_atomic_write "$(ac_state_file "$token")" <<EOF
+token=$token
+phase=armed
+deadline=$deadline
+deadline_mono=$deadline_mono
+packages=$packages
+services=$services
+snapshot_dir=$sd
+pid=0
+created=$now
+reason=$reason
+EOF
+	flock -u 9
+
+	# Bring up the supervisor for liveness within this uptime. The boot hook is
+	# the backstop if this never runs; correctness does not depend on it.
+	[ -n "${AC_TEST:-}" ] || /etc/init.d/apply-confirm start >/dev/null 2>&1
+
+	printf '%s\n' "$token"
+}
+
+cmd_ack() {
+	local token="$1"
+	ac_valid_token "$token" || { echo "invalid token" >&2; return 2; }
+	local f; f=$(ac_state_file "$token")
+	exec 9>"$AC_LOCK"
+	flock 9
+	if [ ! -f "$f" ] || [ "$(ac_get_field "$f" phase)" != "armed" ]; then
+		flock -u 9
+		echo "no such armed token (window may have closed)" >&2
+		return 4
+	fi
+	ac_set_phase "$token" committed
+	ac_remove_record "$token"
+	flock -u 9
+	return 0
+}
+
+cmd_rollback() {
+	local token="${1:-}"
+	[ -n "$token" ] || token=$(ac_find_armed)
+	[ -n "$token" ] || { echo "nothing pending" >&2; return 4; }
+	ac_valid_token "$token" || { echo "invalid token" >&2; return 2; }
+	ac_do_rollback "$token"
+}
+
+cmd_status() {
+	local token=""
+	while [ $# -gt 0 ]; do
+		case "$1" in --json) JSON=1 ;; *) token="$1" ;; esac
+		shift
+	done
+	[ -n "$token" ] || token=$(ac_find_armed)
+	[ -n "$token" ] || return 4
+	local f; f=$(ac_state_file "$token")
+	[ -f "$f" ] || return 4
+	local dm up remaining phase pkgs
+	dm=$(ac_get_field "$f" deadline_mono); up=$(ac_uptime)
+	remaining=$(( dm - up )); [ "$remaining" -lt 0 ] && remaining=0
+	phase=$(ac_get_field "$f" phase)
+	pkgs=$(ac_get_field "$f" packages)
+	if [ -n "$JSON" ]; then
+		printf '{"token":"%s","phase":"%s","remaining":%s,"packages":"%s"}\n' \
+			"$token" "$phase" "$remaining" "$pkgs"
+	else
+		cat "$f"
+		printf 'remaining=%s\n' "$remaining"
+	fi
+}
+
+cmd_list() {
+	local f token phase first=1
+	[ "${1:-}" = "--json" ] && JSON=1
+	[ -n "$JSON" ] && printf '['
+	for f in "$AC_STATE_DIR"/*.state; do
+		[ -e "$f" ] || continue
+		token=$(ac_get_field "$f" token); phase=$(ac_get_field "$f" phase)
+		if [ -n "$JSON" ]; then
+			[ "$first" = 1 ] || printf ','
+			printf '{"token":"%s","phase":"%s"}' "$token" "$phase"
+			first=0
+		else
+			printf '%s\t%s\n' "$token" "$phase"
+		fi
+	done
+	[ -n "$JSON" ] && printf ']\n'
+	return 0
+}
+
+main() {
+	local sub="${1:-}"; shift 2>/dev/null
+	case "$sub" in
+		stage)     cmd_stage "$@" ;;
+		ack)       cmd_ack "$@" ;;
+		rollback)  cmd_rollback "$@" ;;
+		status)    cmd_status "$@" ;;
+		list)      cmd_list "$@" ;;
+		__supervise) ac_supervise "$@" ;;
+		__recover)   ac_recover "$@" ;;
+		-h|--help|help|"") usage; [ -z "$sub" ] && return 2 || return 0 ;;
+		*) usage; return 2 ;;
+	esac
+}
+
+main "$@"

@@ -1,0 +1,7 @@
+# sysntpd fires an ntp hotplug event with ACTION=stratum once it achieves sync.
+# That is our "the wall clock can now be trusted" signal: mark it, then re-run
+# recovery so an apply that was deferred at boot under an untrusted clock gets
+# its real deadline decision.
+[ "$ACTION" = stratum ] || exit 0
+touch /var/run/apply-confirm.clock-trusted
+/usr/sbin/apply-confirm __recover ntp

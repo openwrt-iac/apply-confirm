@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+. tests/integration/lib/install_apply_confirm.sh
+install_apply_confirm
+reset_apply_confirm
+fail() { echo "FAIL: $*"; exit 1; }
+
+# The local trigger fires even when the ack channel is gone. We arm and then
+# break the very interface the host reaches the VM on, from a detached script so
+# the breaking command does not need the connection to survive. The only way the
+# host regains SSH is the local rollback restoring the working config.
+proto=$($SSH "uci get network.lan.proto")
+[ "$proto" = "dhcp" ] || fail "expected lan on dhcp in the VM harness (got $proto)"
+
+$SSH "cat > /tmp/partition.sh" <<'EOS'
+#!/bin/sh
+apply-confirm stage --timeout 10 --package network >/tmp/ac.token 2>/dev/null
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr='10.99.99.99'
+uci set network.lan.netmask='255.255.255.0'
+uci commit network
+/etc/init.d/network reload
+EOS
+$SSH "sh /tmp/partition.sh >/tmp/partition.log 2>&1 &" || true
+echo "armed and blackholed the management interface; ack can no longer arrive"
+
+# Poll for recovery. The 10s deadline plus dhcp re-lease should bring SSH back.
+ok=0
+i=0
+while [ "$i" -lt 40 ]; do
+	if $SSH true 2>/dev/null; then ok=1; break; fi
+	sleep 1
+	i=$((i + 1))
+done
+[ "$ok" = 1 ] || fail "management interface never recovered (local rollback did not fire)"
+
+$SSH "uci get network.lan.proto" | grep -q dhcp || fail "lan proto not restored to dhcp"
+echo "local rollback restored the management interface after a partition."

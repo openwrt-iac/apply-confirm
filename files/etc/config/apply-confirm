@@ -1,0 +1,7 @@
+config apply-confirm 'main'
+	option default_timeout '90'
+	option max_timeout '3600'
+	option state_dir '/etc/apply-confirm/pending'
+	# rollback: a reboot mid-window with an untrusted clock rolls back (safe
+	# default). rearm-on-trusted-clock: defer the decision until sysntpd syncs.
+	option reboot_policy 'rollback'

@@ -1,0 +1,3 @@
+#!/bin/sh
+mkdir -p /etc/apply-confirm/pending
+exit 0

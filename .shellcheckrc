@@ -1,0 +1,5 @@
+# busybox ash and dash both provide `local`; OpenWrt relies on it everywhere.
+disable=SC3043
+# Sourced libraries are resolved at runtime from a path computed at install
+# time, so shellcheck cannot follow them statically.
+disable=SC1091
