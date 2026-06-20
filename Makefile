@@ -22,7 +22,7 @@ test-unit:
 lint: lint-emdash lint-shell
 
 lint-emdash:
-	@if grep -rn $$'\xe2\x80\x94' src files tests docs design Makefile README.md CLAUDE.md 2>/dev/null; then \
+	@if grep -rn $$'\xe2\x80\x94' src files tests docs design scripts .github Makefile README.md CLAUDE.md CHANGELOG.md 2>/dev/null; then \
 		echo ""; echo "em-dash found in source files (forbidden per CLAUDE.md style)"; exit 1; \
 	fi
 
@@ -36,7 +36,8 @@ lint-shell:
 		files/etc/uci-defaults/99-apply-confirm \
 		tests/run_unit.sh tests/unit/*.sh \
 		tests/vm/*.sh tests/integration/run.sh \
-		tests/integration/lib/*.sh tests/integration/*_test.sh
+		tests/integration/lib/*.sh tests/integration/*_test.sh \
+		tests/integration/release_apk_smoke.sh scripts/*.sh
 
 stage:
 	@rm -rf $(STAGE)

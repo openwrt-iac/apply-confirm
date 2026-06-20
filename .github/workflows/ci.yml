@@ -1,0 +1,308 @@
+name: ci
+
+# Triggers:
+#   - push to main: lint + unit + integration (no release).
+#   - pull_request: lint + unit + integration (no release).
+#   - push of a v* tag: lint + unit + integration, then release-apk and
+#     verify-arch-build if all passed.
+#   - workflow_dispatch: manual re-run; verify-arch-build also fires so the
+#     per-arch SDK pins can be validated before tagging.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: >-
+    ${{ !startsWith(github.ref, 'refs/tags/')
+        && github.event_name != 'workflow_dispatch' }}
+
+env:
+  OPENWRT_VERSION: 25.12.4
+  OPENWRT_IMAGE_CACHE_KEY: openwrt-25.12.4-x86-64-ext4-combined
+  OPENWRT_SDK_CACHE_KEY: openwrt-sdk-25.12.4-x86_64
+  OPENWRT_SDK_URL: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:edge
+    steps:
+      - name: Install tooling
+        run: apk add --no-cache make grep findutils shellcheck
+      - uses: actions/checkout@v6
+      - name: Lint (em-dash + shellcheck)
+        run: make lint
+      - name: Package staging succeeds
+        run: make stage
+
+  unit:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:edge
+    steps:
+      # util-linux for flock, coreutils for od/mktemp parity with the target.
+      - name: Install tooling
+        run: apk add --no-cache make grep findutils coreutils util-linux
+      - uses: actions/checkout@v6
+      - name: Unit tests
+        run: make test-unit
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [lint, unit]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install QEMU and SSH client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils openssh-client curl
+
+      - name: Cache OpenWrt image
+        uses: actions/cache@v5
+        with:
+          path: tests/vm/openwrt-${{ env.OPENWRT_VERSION }}.img.gz
+          key: ${{ env.OPENWRT_IMAGE_CACHE_KEY }}
+
+      - name: Setup VM image
+        run: tests/vm/setup.sh
+
+      - name: Start VM
+        run: tests/vm/start.sh
+
+      - name: Wait for VM SSH
+        run: TIMEOUT=180 tests/vm/wait.sh
+
+      - name: Run integration tests
+        run: tests/integration/run.sh
+
+      - name: Capture serial log on failure
+        if: failure()
+        run: tail -200 tests/vm/qemu.log || true
+
+      - name: Stop VM
+        if: always()
+        run: tests/vm/stop.sh
+
+  # Attaches the APK to the GitHub Release on a signed v* tag. The signed apk
+  # feed at openwrt-iac.github.io is rebuilt by the aggregator, which pulls the
+  # latest stable release asset from each source repo; this job just makes sure
+  # a tagged release has a downloadable, smoke-tested asset.
+  release-apk:
+    runs-on: ubuntu-latest
+    needs: [lint, unit, integration]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Tags MUST be signed by a key in .github/release-signers.asc. An unsigned
+      # tag, or one signed by a non-listed key, fails before anything is built.
+      - name: Verify tag signature
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if ! grep -q 'BEGIN PGP PUBLIC KEY BLOCK' .github/release-signers.asc; then
+            echo "ERROR: .github/release-signers.asc has no PGP public-key block."
+            echo "Export your key: gpg --armor --export <fingerprint> > .github/release-signers.asc"
+            exit 1
+          fi
+          export GNUPGHOME=$(mktemp -d)
+          gpg --batch --import .github/release-signers.asc
+          git verify-tag "$TAG"
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils openssh-client curl zstd \
+            build-essential libncurses-dev libssl-dev python3 \
+            unzip gawk gettext xsltproc rsync wget
+
+      - name: Cache OpenWrt SDK
+        uses: actions/cache@v5
+        with:
+          path: build/sdk
+          key: ${{ env.OPENWRT_SDK_CACHE_KEY }}
+
+      - name: Verify SDK pin is in sync with OPENWRT_VERSION
+        run: |
+          SDK_TARBALL=$(basename "$OPENWRT_SDK_URL")
+          grep -q "  $SDK_TARBALL\$" build/sdk.sha256 || {
+            echo "ERROR: build/sdk.sha256 does not pin $SDK_TARBALL."
+            exit 1
+          }
+
+      - name: Download SDK if cache miss (verified by sha256)
+        run: |
+          if [ ! -d build/sdk/staging_dir ]; then
+            mkdir -p build/sdk
+            SDK_TARBALL=$(basename "$OPENWRT_SDK_URL")
+            curl -fsSL -o "/tmp/$SDK_TARBALL" "$OPENWRT_SDK_URL"
+            ( cd /tmp && sha256sum --check "$GITHUB_WORKSPACE/build/sdk.sha256" --ignore-missing )
+            tar --use-compress-program=unzstd -xf "/tmp/$SDK_TARBALL" -C build/sdk --strip-components=1
+            rm -f "/tmp/$SDK_TARBALL"
+          fi
+
+      - name: Cache OpenWrt VM image
+        uses: actions/cache@v5
+        with:
+          path: tests/vm/openwrt-${{ env.OPENWRT_VERSION }}.img.gz
+          key: ${{ env.OPENWRT_IMAGE_CACHE_KEY }}
+
+      - name: Stage package
+        run: make stage
+
+      - name: Build APK
+        run: |
+          cd build/sdk
+          ./scripts/feeds update -a || true
+          ./scripts/feeds install -a || true
+          ln -sfn ../../openwrt/apply-confirm package/apply-confirm
+          make defconfig
+          make package/apply-confirm/compile V=s
+
+      - name: Find built APK
+        id: find_apk
+        run: |
+          APK=$(find build/sdk/bin -name 'apply-confirm-*.apk' | head -1)
+          [ -n "$APK" ] || { echo "no .apk built"; exit 1; }
+          echo "apk=$APK" >> $GITHUB_OUTPUT
+          ls -la "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: apply-confirm-apk
+          path: ${{ steps.find_apk.outputs.apk }}
+
+      - name: Setup VM
+        run: tests/vm/setup.sh
+
+      - name: Start VM
+        run: tests/vm/start.sh
+
+      - name: Wait for VM SSH
+        run: TIMEOUT=180 tests/vm/wait.sh
+
+      - name: Install APK in VM and run smoke test
+        run: tests/integration/release_apk_smoke.sh "${{ steps.find_apk.outputs.apk }}"
+
+      - name: Capture serial log on failure
+        if: failure()
+        run: tail -200 tests/vm/qemu.log || true
+
+      - name: Stop VM
+        if: always()
+        run: tests/vm/stop.sh
+
+      - name: Attach APK to GitHub release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            case "$TAG" in
+              *-rc*|*-alpha*|*-beta*|*-pre*) PRE=--prerelease ;;
+              *) PRE= ;;
+            esac
+            chmod +x scripts/release-notes.sh
+            scripts/release-notes.sh "$TAG" > /tmp/release-notes.md || true
+            if [ -s /tmp/release-notes.md ]; then
+              gh release create "$TAG" $PRE --title "$TAG" --notes-file /tmp/release-notes.md
+            else
+              gh release create "$TAG" $PRE --title "$TAG" --generate-notes
+            fi
+          fi
+          gh release upload "$TAG" "${{ steps.find_apk.outputs.apk }}" --clobber
+
+  # apply-confirm is PKGARCH:=all (pure shell, no compiled code), so the APK is
+  # byte-identical across host archs. This job PROVES that invariant rather than
+  # shipping per-arch artifacts: a divergence means something arch-specific snuck
+  # into the build and the release should be held.
+  verify-arch-build:
+    runs-on: ubuntu-latest
+    needs: [lint, unit, integration]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64_generic
+            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/armsr/armv8/openwrt-sdk-25.12.4-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          - arch: arm_cortex-a7
+            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/mediatek/mt7622/openwrt-sdk-25.12.4-mediatek-mt7622_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          - arch: mips_24kc
+            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/ath79/generic/openwrt-sdk-25.12.4-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl zstd build-essential libncurses-dev libssl-dev python3 \
+            unzip gawk gettext xsltproc rsync wget
+
+      - name: Cache OpenWrt SDK (${{ matrix.arch }})
+        uses: actions/cache@v5
+        with:
+          path: build/sdk-${{ matrix.arch }}
+          key: openwrt-sdk-25.12.4-${{ matrix.arch }}
+
+      - name: Verify per-arch SDK pin
+        run: |
+          SDK_TARBALL=$(basename "${{ matrix.sdk_url }}")
+          grep -q "  $SDK_TARBALL\$" build/sdk.sha256 || {
+            echo "ERROR: build/sdk.sha256 does not pin $SDK_TARBALL."
+            exit 1
+          }
+
+      - name: Download SDK if cache miss
+        run: |
+          if [ ! -d build/sdk-${{ matrix.arch }}/staging_dir ]; then
+            mkdir -p build/sdk-${{ matrix.arch }}
+            SDK_TARBALL=$(basename "${{ matrix.sdk_url }}")
+            curl -fsSL -o "/tmp/$SDK_TARBALL" "${{ matrix.sdk_url }}"
+            ( cd /tmp && sha256sum --check "$GITHUB_WORKSPACE/build/sdk.sha256" --ignore-missing )
+            tar --use-compress-program=unzstd -xf "/tmp/$SDK_TARBALL" \
+                -C build/sdk-${{ matrix.arch }} --strip-components=1
+            rm -f "/tmp/$SDK_TARBALL"
+          fi
+
+      - name: Stage package
+        run: make stage
+
+      - name: Build APK against ${{ matrix.arch }} SDK
+        run: |
+          cd build/sdk-${{ matrix.arch }}
+          ./scripts/feeds update -a || true
+          ./scripts/feeds install -a || true
+          ln -sfn ../../openwrt/apply-confirm package/apply-confirm
+          make defconfig
+          make package/apply-confirm/compile V=s
+
+      - name: Find built APK
+        id: find_apk
+        run: |
+          APK=$(find build/sdk-${{ matrix.arch }}/bin -name 'apply-confirm-*.apk' | head -1)
+          [ -n "$APK" ] || { echo "no .apk built for ${{ matrix.arch }}"; exit 1; }
+          sha256sum "$APK"
+
+      - name: Upload ${{ matrix.arch }} APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: apply-confirm-apk-${{ matrix.arch }}
+          path: ${{ steps.find_apk.outputs.apk }}
