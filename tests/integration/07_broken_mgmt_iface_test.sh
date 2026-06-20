@@ -28,17 +28,17 @@ uci commit network
 EOS
 
 start=$(date +%s)
-$SSH "sh /tmp/breakit.sh >/tmp/breakit.log 2>&1 &" || true
+$SSH "nohup sh /tmp/breakit.sh >/tmp/breakit.log 2>&1 &" || true
 echo "blackholed the management interface at t=0, deadline at t=${WINDOW}s"
 
 # Confirm the link actually dropped before trusting the recovery signal.
 sleep 4
-if $SSH true 2>/dev/null; then fail "management interface did not drop; test is not exercising the scenario"; fi
+if vm_reachable; then fail "management interface did not drop; test is not exercising the scenario"; fi
 
 ok=0
 i=0
 while [ "$i" -lt 40 ]; do
-	if $SSH true 2>/dev/null; then ok=1; break; fi
+	if vm_reachable; then ok=1; break; fi
 	sleep 1
 	i=$((i + 1))
 done

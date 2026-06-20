@@ -21,14 +21,14 @@ uci set network.lan.netmask='255.255.255.0'
 uci commit network
 /etc/init.d/network reload
 EOS
-$SSH "sh /tmp/partition.sh >/tmp/partition.log 2>&1 &" || true
+$SSH "nohup sh /tmp/partition.sh >/tmp/partition.log 2>&1 &" || true
 echo "armed and blackholed the management interface; ack can no longer arrive"
 
 # Poll for recovery. The 10s deadline plus dhcp re-lease should bring SSH back.
 ok=0
 i=0
 while [ "$i" -lt 40 ]; do
-	if $SSH true 2>/dev/null; then ok=1; break; fi
+	if vm_reachable; then ok=1; break; fi
 	sleep 1
 	i=$((i + 1))
 done
