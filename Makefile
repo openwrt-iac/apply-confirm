@@ -21,20 +21,23 @@ test-unit:
 
 lint: lint-emdash lint-shell
 
+# printf emits the em-dash bytes portably; `$'...'` is not supported by dash,
+# which is /bin/sh on the CI host, so it would silently match nothing there.
 lint-emdash:
-	@if grep -rn $$'\xe2\x80\x94' src files tests docs design scripts .github Makefile README.md CLAUDE.md CHANGELOG.md 2>/dev/null; then \
+	@if grep -rn "$$(printf '\342\200\224')" src files tests docs design scripts .github Makefile README.md CLAUDE.md CHANGELOG.md 2>/dev/null; then \
 		echo ""; echo "em-dash found in source files (forbidden per CLAUDE.md style)"; exit 1; \
 	fi
 
-# busybox ash is the target shell, so check with -s sh. shellcheck is advisory
-# locally (may be absent); CI installs it.
+# Target scripts run on the router (busybox ash) and are checked as strict POSIX
+# sh. The test and build scripts run on the CI host and may use bash features,
+# so they are checked as bash. shellcheck is advisory locally (may be absent).
 lint-shell:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed, skipping"; exit 0; }
 	@shellcheck -s sh src/apply-confirm src/lib/*.sh \
 		files/etc/init.d/apply-confirm \
 		files/etc/hotplug.d/ntp/20-apply-confirm \
-		files/etc/uci-defaults/99-apply-confirm \
-		tests/run_unit.sh tests/unit/*.sh \
+		files/etc/uci-defaults/99-apply-confirm
+	@shellcheck -s bash tests/run_unit.sh tests/unit/*.sh \
 		tests/vm/*.sh tests/integration/run.sh \
 		tests/integration/lib/*.sh tests/integration/*_test.sh \
 		tests/integration/release_apk_smoke.sh scripts/*.sh
