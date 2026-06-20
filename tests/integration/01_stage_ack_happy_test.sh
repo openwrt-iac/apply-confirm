@@ -14,7 +14,8 @@ $SSH "apply-confirm status" | grep -q '^phase=armed' || fail "not armed after st
 $SSH "uci set system.@system[0].hostname='acked-host'; uci commit system"
 $SSH "apply-confirm ack '$TOKEN'" || fail "ack failed"
 
-$SSH "apply-confirm status"; rc=$?
+# status returns 4 once the window has closed; capture it without set -e aborting.
+rc=0; $SSH "apply-confirm status" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "expected status rc 4 after ack, got $rc"
 
 now=$($SSH "uci get system.@system[0].hostname")

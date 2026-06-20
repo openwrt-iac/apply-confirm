@@ -15,7 +15,8 @@ $SSH "uci set system.@system[0].hostname='survived-reboot'; uci commit system"
 echo "armed with a long window, applied a change, rebooting without acking"
 $SSH "sync; reboot" || true
 sleep 8
-TIMEOUT=120 tests/vm/wait.sh || fail "VM did not come back after reboot"
+# CI runners often lack KVM, so an emulated reboot can take minutes.
+TIMEOUT=300 tests/vm/wait.sh || fail "VM did not come back after reboot"
 sleep 8
 
 now=$($SSH "uci get system.@system[0].hostname")
