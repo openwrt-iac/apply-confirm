@@ -30,14 +30,15 @@ env:
   OPENWRT_SDK_URL: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 
 jobs:
+  # lint and unit run natively on ubuntu rather than in an alpine container:
+  # actions/checkout ships a glibc node that cannot exec on musl/alpine without a
+  # compat shim. The integration job exercises the real busybox-ash target shell.
   lint:
     runs-on: ubuntu-latest
-    container:
-      image: alpine:edge
     steps:
-      - name: Install tooling
-        run: apk add --no-cache make grep findutils shellcheck
       - uses: actions/checkout@v6
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
       - name: Lint (em-dash + shellcheck)
         run: make lint
       - name: Package staging succeeds
@@ -45,12 +46,7 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
-    container:
-      image: alpine:edge
     steps:
-      # util-linux for flock, coreutils for od/mktemp parity with the target.
-      - name: Install tooling
-        run: apk add --no-cache make grep findutils coreutils util-linux
       - uses: actions/checkout@v6
       - name: Unit tests
         run: make test-unit
