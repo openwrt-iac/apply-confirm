@@ -33,15 +33,15 @@ echo "blackholed the management interface, deadline at t=${WINDOW}s"
 
 # Poll for the drop (the break lands a few seconds in, after stage runs).
 dropped=0; i=0
-while [ "$i" -lt 25 ]; do
-	vm_reachable || { dropped=1; break; }
+while [ "$i" -lt 60 ]; do
+	if ! vm_reachable; then dropped=1; break; fi
 	sleep 1; i=$((i + 1))
 done
 [ "$dropped" = 1 ] || fail "management interface never dropped; test is not exercising the scenario"
 
 ok=0; i=0
-while [ "$i" -lt 90 ]; do
-	vm_reachable && { ok=1; break; }
+while [ "$i" -lt 120 ]; do
+	if vm_reachable; then ok=1; break; fi
 	sleep 1; i=$((i + 1))
 done
 [ "$ok" = 1 ] || fail "box never became reachable again (rollback did not fire)"

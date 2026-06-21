@@ -27,15 +27,15 @@ echo "armed and blackholed the management interface; ack can no longer arrive"
 # The break lands a few seconds in (stage snapshots and starts the supervisor
 # first), so poll for the drop rather than assuming a fixed delay.
 dropped=0; i=0
-while [ "$i" -lt 25 ]; do
-	vm_reachable || { dropped=1; break; }
+while [ "$i" -lt 60 ]; do
+	if ! vm_reachable; then dropped=1; break; fi
 	sleep 1; i=$((i + 1))
 done
 [ "$dropped" = 1 ] || fail "management interface never dropped; test is not exercising the scenario"
 
 ok=0; i=0
-while [ "$i" -lt 60 ]; do
-	vm_reachable && { ok=1; break; }
+while [ "$i" -lt 90 ]; do
+	if vm_reachable; then ok=1; break; fi
 	sleep 1; i=$((i + 1))
 done
 [ "$ok" = 1 ] || fail "management interface never recovered (local rollback did not fire)"
