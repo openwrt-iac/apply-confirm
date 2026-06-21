@@ -295,6 +295,7 @@ jobs:
         run: |
           APK=$(find build/sdk-${{ matrix.arch }}/bin -name 'apply-confirm-*.apk' | head -1)
           [ -n "$APK" ] || { echo "no .apk built for ${{ matrix.arch }}"; exit 1; }
+          echo "apk=$APK" >> $GITHUB_OUTPUT
           sha256sum "$APK"
 
       - name: Upload ${{ matrix.arch }} APK
