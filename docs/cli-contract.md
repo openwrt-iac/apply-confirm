@@ -88,9 +88,12 @@ on stdout is directly capturable; the fallback needs nothing but a local shell.
 `apply-confirm status --json` for `remaining` to render the countdown it already
 shows for rpcd's confirm flow. Gains the reboot survival rpcd lacks.
 
-**uapi 3.x.** Invokes the CLI from its handler, captures the token, threads it
-through its transaction, and calls `ack` after its own validate+commit+reload
-succeeds. Exit 3/4/5 map onto its error envelope (`already_armed`,
+**uapi 2.3.0.** Invokes the CLI from its handler, captures the token, and
+returns it to the client in a `202` response; the **client** acks (via
+`POST /confirm/<token>`) after verifying its management path still works. uapi
+does NOT ack on its own reload succeeding: a change can reload cleanly yet sever
+the only path to the box, and auto-acking would defeat exactly the lockout case
+this exists for. Exit 3/4/5 map onto uapi's error envelope (`already_armed`,
 `confirm_window_closed`, `rollback_reload_failed`). uapi integrates by invoking,
 never by absorbing.
 
