@@ -15,3 +15,6 @@
 /tests/vm/.injected
 
 *.tmp
+
+# Local feedback / notes (not committed)
+feedback/

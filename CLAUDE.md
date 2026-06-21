@@ -5,7 +5,7 @@ with a deadline; if it is not acked in time, restore the pre-change snapshot and
 reload services to the prior state. The rollback must fire locally and survive a
 reboot, a process kill, and a broken management interface.
 
-This is a standalone OpenWrt package, not part of uapi. uapi 3.x and LuCI
+This is a standalone OpenWrt package, not part of uapi. uapi 2.3.0 and LuCI
 integrate by invoking the CLI. The name `apply-confirm` is a working placeholder
 pending the design issue.
 
