@@ -1,5 +1,17 @@
 SSH="tests/vm/ssh.sh"
 
+# Fast-failing reachability probe for the partition tests: a plain ssh during a
+# deliberate blackhole would hang on the full TCP connect timeout, so bound it.
+vm_reachable() {
+	ssh -i tests/vm/id_ed25519 \
+	    -o StrictHostKeyChecking=no \
+	    -o UserKnownHostsFile=/dev/null \
+	    -o LogLevel=ERROR \
+	    -o ConnectTimeout=3 \
+	    -o BatchMode=yes \
+	    -p 2222 root@127.0.0.1 true 2>/dev/null
+}
+
 # Push the staged package tree onto the VM and enable the service. Guarded by a
 # tmpfs sentinel so a second call is a no-op.
 install_apply_confirm() {

@@ -35,11 +35,17 @@ ac_now() { date +%s; }
 # which is why the live countdown measures against this and not date +%s.
 ac_uptime() { local u _; read -r u _ < /proc/uptime; printf '%s' "${u%.*}"; }
 
-ac_new_token() {
-	local rnd
-	rnd=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-	printf 'ac_%s_%s' "$(ac_now)" "$rnd"
+# 8 lowercase hex chars. The kernel uuid is hex with dashes and is always present
+# on OpenWrt; the urandom path is a fallback. Avoids `od -tx1`, which busybox does
+# not implement the way coreutils does (it yielded an empty string on target).
+ac_rand_hex8() {
+	local h=""
+	[ -r /proc/sys/kernel/random/uuid ] && h=$(tr -d - < /proc/sys/kernel/random/uuid)
+	[ -n "$h" ] || h=$(tr -dc 'a-f0-9' < /dev/urandom 2>/dev/null | head -c 8)
+	printf '%.8s' "$h"
 }
+
+ac_new_token() { printf 'ac_%s_%s' "$(ac_now)" "$(ac_rand_hex8)"; }
 
 # Reject anything that is not ac_<digits>_<8 lowercase hex> before it reaches a
 # path or a sed expression.

@@ -3,3 +3,7 @@ disable=SC3043
 # Sourced libraries are resolved at runtime from a path computed at install
 # time, so shellcheck cannot follow them statically.
 disable=SC1091
+# `[ A ] && [ B ] || fail` is an intentional assertion guard here; the fail
+# branch running when A is true but B false is exactly the desired behavior,
+# and the guards have no B-side effect, so the SC2015 caveat does not apply.
+disable=SC2015

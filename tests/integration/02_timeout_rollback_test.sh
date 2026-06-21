@@ -16,7 +16,8 @@ sleep 8
 now=$($SSH "uci get system.@system[0].hostname")
 [ "$now" = "$orig" ] || fail "unconfirmed change was not rolled back (got $now)"
 
-$SSH "apply-confirm status"; rc=$?
+# status returns 4 once the record is gone; capture it without set -e aborting.
+rc=0; $SSH "apply-confirm status" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "expected no pending record after rollback, got rc $rc"
 
 echo "unconfirmed apply rolled back on the deadline."

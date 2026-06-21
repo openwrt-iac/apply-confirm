@@ -1,32 +1,42 @@
-# The live countdown. Launched by procd for the armed apply. Sleeps toward the
-# monotonic deadline in bounded chunks so an ack (which flips phase away from
-# armed, or removes the record) is noticed within one chunk and the process
-# exits promptly. Re-reads deadline_mono every wake so a boot-time re-arm is
-# picked up by an already-running supervisor.
+# The supervisor daemon. A single long-lived process: it watches for an armed
+# apply, counts down to its deadline against the monotonic clock, rolls back if
+# the deadline passes while still armed, then goes back to watching. It never
+# exits on its own, so procd keeps exactly one instance and only respawns it on
+# an actual crash. (An earlier design exited when idle and relied on procd
+# respawn, which storm-respawned every few seconds after every apply and starved
+# a slow box.)
 
 AC_SUPERVISE_CHUNK="${AC_SUPERVISE_CHUNK:-5}"
+AC_IDLE_POLL="${AC_IDLE_POLL:-2}"
 
 ac_supervise() {
 	local token f dm up phase remain
-	token="${1:-}"
-	[ -n "$token" ] || token=$(ac_find_armed) || return 0
-	[ -n "$token" ] || return 0
-	f=$(ac_state_file "$token")
-	[ -f "$f" ] || return 0
-
-	ac_set_field "$token" pid "$$"
-
 	while :; do
-		[ -f "$f" ] || return 0
-		phase=$(ac_get_field "$f" phase) || return 0
-		[ "$phase" = "armed" ] || return 0
-		dm=$(ac_get_field "$f" deadline_mono) || return 0
-		up=$(ac_uptime)
-		[ "$up" -ge "$dm" ] && break
-		remain=$(( dm - up ))
-		[ "$remain" -gt "$AC_SUPERVISE_CHUNK" ] && remain="$AC_SUPERVISE_CHUNK"
-		sleep "$remain"
-	done
+		token=$(ac_find_armed 2>/dev/null) || token=""
+		if [ -z "$token" ]; then
+			sleep "$AC_IDLE_POLL"
+			continue
+		fi
 
-	ac_do_rollback "$token"
+		f=$(ac_state_file "$token")
+		ac_set_field "$token" pid "$$"
+
+		# Count this armed apply down to its deadline. Bounded chunks so an ack
+		# (phase flips, or the record is removed) is noticed within one chunk and
+		# deadline_mono re-arms are picked up.
+		while :; do
+			[ -f "$f" ] || break
+			phase=$(ac_get_field "$f" phase) || break
+			[ "$phase" = "armed" ] || break
+			dm=$(ac_get_field "$f" deadline_mono) || break
+			up=$(ac_uptime)
+			if [ "$up" -ge "$dm" ]; then
+				ac_do_rollback "$token"
+				break
+			fi
+			remain=$(( dm - up ))
+			[ "$remain" -gt "$AC_SUPERVISE_CHUNK" ] && remain="$AC_SUPERVISE_CHUNK"
+			sleep "$remain"
+		done
+	done
 }
