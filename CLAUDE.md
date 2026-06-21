@@ -48,8 +48,11 @@ This is a safety primitive, so release discipline is stricter than uapi's:
 
 - **RC first, always.** Even minor releases soak as `-rc` before final. No
   ship-as-patch-direct.
-- **The acceptance test is `07_broken_mgmt_iface`.** A change that cannot keep
-  that test green does not merge.
+- **The acceptance test is `07_broken_mgmt_iface`**, validated on real hardware
+  (or a KVM host). In CI it and `06` run best-effort, because qemu user-mode
+  networking makes the in-guest link break nondeterministic; CI gates on the
+  deterministic core (01-05). A change that cannot keep the acceptance test green
+  on hardware does not merge.
 - **Branch + PR only**, never direct push to `main`. Org-wide rule.
 
 ## Layout
