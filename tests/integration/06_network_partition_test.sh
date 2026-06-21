@@ -14,7 +14,7 @@ proto=$($SSH "uci get network.lan.proto")
 
 $SSH "cat > /tmp/partition.sh" <<'EOS'
 #!/bin/sh
-apply-confirm stage --timeout 10 --package network >/tmp/ac.token 2>/dev/null
+apply-confirm stage --timeout 15 --package network >/tmp/ac.token 2>/dev/null
 uci set network.lan.proto='static'
 uci set network.lan.ipaddr='10.99.99.99'
 uci set network.lan.netmask='255.255.255.0'
@@ -24,13 +24,19 @@ EOS
 $SSH "nohup sh /tmp/partition.sh >/tmp/partition.log 2>&1 &" || true
 echo "armed and blackholed the management interface; ack can no longer arrive"
 
-# Poll for recovery. The 10s deadline plus dhcp re-lease should bring SSH back.
-ok=0
-i=0
-while [ "$i" -lt 40 ]; do
-	if vm_reachable; then ok=1; break; fi
-	sleep 1
-	i=$((i + 1))
+# The break lands a few seconds in (stage snapshots and starts the supervisor
+# first), so poll for the drop rather than assuming a fixed delay.
+dropped=0; i=0
+while [ "$i" -lt 25 ]; do
+	vm_reachable || { dropped=1; break; }
+	sleep 1; i=$((i + 1))
+done
+[ "$dropped" = 1 ] || fail "management interface never dropped; test is not exercising the scenario"
+
+ok=0; i=0
+while [ "$i" -lt 60 ]; do
+	vm_reachable && { ok=1; break; }
+	sleep 1; i=$((i + 1))
 done
 [ "$ok" = 1 ] || fail "management interface never recovered (local rollback did not fire)"
 
