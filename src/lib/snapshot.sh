@@ -54,7 +54,10 @@ ac_do_rollback() {
 	[ -f "$f" ] || return 4
 
 	exec 9>"$AC_LOCK"
-	flock 9
+	# Bounded wait: the lock only guards concurrent callers, and at boot there is
+	# no contention, so this acquires at once. The timeout guarantees rollback can
+	# never block forever on a wedged lock.
+	flock -w 10 9 2>/dev/null || true
 	if [ "$(ac_get_field "$f" phase)" != "armed" ]; then
 		flock -u 9
 		return 4

@@ -9,9 +9,12 @@ STOP=89
 PROG=/usr/sbin/apply-confirm
 
 boot() {
-	# Reconcile any apply that survived a reboot before the higher-numbered
-	# services reload config, then enter normal supervision.
-	"$PROG" __recover boot
+	# Recovery runs OFF the critical boot path. boot() executes synchronously in
+	# the rc.d sequence, so a slow or stuck rollback here would wedge every later
+	# service (dropbear, network) and lock the operator out: the exact outcome
+	# this package exists to prevent. Detach it; the box finishes booting and the
+	# rollback completes concurrently, ending in the restored config either way.
+	( "$PROG" __recover boot >/dev/null 2>&1 & )
 	start
 }
 

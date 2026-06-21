@@ -52,7 +52,7 @@ cmd_stage() {
 	[ -n "$services" ] || services=$(ac_services_for "$packages")
 
 	exec 9>"$AC_LOCK"
-	flock 9
+	flock -w 10 9 2>/dev/null || true
 	local existing
 	existing=$(ac_find_armed) && {
 		echo "an apply is already armed: $existing" >&2
@@ -105,7 +105,7 @@ cmd_ack() {
 	ac_valid_token "$token" || { echo "invalid token" >&2; return 2; }
 	local f; f=$(ac_state_file "$token")
 	exec 9>"$AC_LOCK"
-	flock 9
+	flock -w 10 9 2>/dev/null || true
 	if [ ! -f "$f" ] || [ "$(ac_get_field "$f" phase)" != "armed" ]; then
 		flock -u 9
 		echo "no such armed token (window may have closed)" >&2
