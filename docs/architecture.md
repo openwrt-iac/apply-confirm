@@ -79,6 +79,11 @@ Mirrors uapi's transaction recipe, in shell:
 - restore: per package `uci -q import <pkg>` then `uci -q commit <pkg>`, then one
   coalesced `reload` (not `restart`, to minimize the management-link bounce) of
   the recorded services.
+- the recorded services come from `--service` if given, else from a built-in
+  deterministic map (`dhcp`->dnsmasq+odhcpd, `wireless`->network,
+  `system`->system+log+sysntpd, else same-name-if-init-exists). The map never
+  reads ucitrack, so reload behavior is identical with or without LuCI. See
+  `docs/cli-contract.md` (stage `--service`).
 - If the reload fails during restore, uci is already back to the prior config, so
   it is left restored and the broken change is never reinstated; the phase becomes
   `rolledback_reload_failed` (CLI exit 5) and the record is retained.

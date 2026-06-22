@@ -2,17 +2,31 @@
 # recipe (uci export to snapshot, uci import + commit to restore, init.d reload),
 # lifted out of a synchronous HTTP request and onto a durable deadline.
 
-# Default package->service map when the caller gives no explicit --service. v0
-# keeps this static for the common packages and defaults everything else to its
-# own name; an explicit --service at stage time overrides it and is what the
-# rollback actually reloads.
+ac_init_exists() { [ -x "/etc/init.d/$1" ]; }
+
+# Deterministic package->service reload map, used when the caller gives no
+# explicit --service. Never reads ucitrack, so behavior is identical whether or
+# not LuCI is installed. Only packages whose reload set differs from a same-named
+# init script are special-cased; everything else maps to its own init script if
+# one exists. ac_reload_services skips any listed service whose init script is
+# absent, so a not-installed entry is harmless. `system` needs `log` (logging
+# settings) and `sysntpd` (the `ntp` timeserver) reloaded beyond
+# /etc/init.d/system itself. An explicit --service overrides all of this.
 ac_services_for() {
-	local pkg out=""
+	local pkg s out="" seen=""
 	for pkg in $1; do
 		case "$pkg" in
-			dhcp) out="$out dnsmasq odhcpd" ;;
-			*)    out="$out $pkg" ;;
+			dhcp)     set -- dnsmasq odhcpd ;;
+			wireless) set -- network ;;
+			system)   set -- system log sysntpd ;;
+			*)        if ac_init_exists "$pkg"; then set -- "$pkg"; else set --; fi ;;
 		esac
+		for s in "$@"; do
+			case " $seen " in
+				*" $s "*) ;;
+				*) seen="$seen $s"; out="$out $s" ;;
+			esac
+		done
 	done
 	printf '%s' "${out# }"
 }
