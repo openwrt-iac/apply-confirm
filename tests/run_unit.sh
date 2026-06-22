@@ -40,6 +40,12 @@ uci() {
 AC_FAKE_RELOAD_RC=0
 ac_reload_services() { return "$AC_FAKE_RELOAD_RC"; }
 
+# The service map's same-name fallback checks /etc/init.d/<pkg>, which does not
+# exist on the dev host. Stub it with a fixed "installed" set so the map is
+# testable host-independently.
+AC_FAKE_INITS="network firewall dropbear system log sysntpd dnsmasq odhcpd"
+ac_init_exists() { case " $AC_FAKE_INITS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
 export SCRATCH
 for t in "$ROOT"/tests/unit/test_*.sh; do
 	# shellcheck disable=SC1090

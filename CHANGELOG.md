@@ -7,8 +7,15 @@ primitive it ships RC-first; even minor releases soak as `-rc` before final.
 
 ## [Unreleased]
 
-### Added
-- (Reserved for next-cycle changes.)
+### Changed
+- The default `--service` reload set is now a built-in deterministic map rather
+  than a same-name guess: `dhcp`->dnsmasq+odhcpd, `wireless`->network,
+  `system`->system+log+sysntpd, else a same-named init script if one exists. It
+  never reads ucitrack, so reload behavior is identical with or without LuCI
+  installed. `system` now also reloads `log` and `sysntpd` (logging and the ntp
+  timeserver), which `/etc/init.d/system` alone does not. Callers passing
+  `--service` (uapi) are unaffected. Re #5.
+- Documented the one-global-pending-window concurrency model explicitly.
 
 ## [0.1.0-rc1]
 

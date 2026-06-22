@@ -23,9 +23,13 @@ caller applies its change after a successful stage.
   `max_timeout` (3600).
 - `--package PKG` repeatable, at least one required. These are the uci packages
   snapshotted and restored on rollback.
-- `--service SVC` repeatable, optional. Services reloaded on rollback. Defaults
-  to the packages' tracked services (`network`->network, `firewall`->firewall,
-  `dhcp`->dnsmasq+odhcpd, others to themselves).
+- `--service SVC` repeatable, optional. Services reloaded on rollback. When
+  omitted, a **built-in deterministic map** is used (identical whether or not
+  LuCI is installed; it never reads ucitrack): `dhcp`->dnsmasq+odhcpd,
+  `wireless`->network, `system`->system+log+sysntpd, and any other package to a
+  same-named init script if one exists. The rollback reload skips any service
+  whose init script is absent. Callers that know their reload set (uapi does)
+  should pass `--service` explicitly; the map is only the fallback.
 - `--reason TEXT` optional, recorded for forensics.
 - Refuses with **exit 3** if an apply is already armed (one pending apply at a
   time). On a snapshot failure it exits **6** without arming, so the caller must
@@ -52,6 +56,16 @@ failed (uci is still back to the prior config).
 monotonic clock); `--json` for programmatic callers. **Exit 4** if nothing is
 pending. `list` shows all records including retained terminal-phase ones
 (rolled-back-with-failed-reload) for forensics.
+
+## Concurrency: one global pending window
+
+There is **at most one armed apply on the box at a time**, system-wide (the same
+single-pending model rpcd uses). A `stage` while one is already armed is
+**rejected with exit 3** (`already_armed`), not queued. This is the intended
+safety default: one window can cover an arbitrarily long sequence of changes
+(e.g. a whole `terraform apply`), and concurrent confirmed-apply workflows from
+different operators serialize rather than racing on overlapping snapshots. The
+only axis that would relax this is per-package or named windows, not planned.
 
 ## Exit codes
 

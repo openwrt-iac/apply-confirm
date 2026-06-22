@@ -1,11 +1,6 @@
 # AC_FAKE_RELOAD_RC is consumed by run_unit.sh's ac_reload_services override.
 # shellcheck disable=SC2034
-
-it "services_for maps dhcp to dnsmasq and odhcpd"
-assert_eq "network dnsmasq odhcpd" "$(ac_services_for "network dhcp")"
-
-it "services_for defaults an unknown package to itself"
-assert_eq "firewall" "$(ac_services_for "firewall")"
+# Service-map derivation is covered in test_services.sh.
 
 _arm() {
 	# $1 token, writes an armed record snapshotting the current network config
