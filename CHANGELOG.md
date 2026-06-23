@@ -7,6 +7,14 @@ primitive it ships RC-first; even minor releases soak as `-rc` before final.
 
 ## [Unreleased]
 
+### Added
+- (Reserved for next-cycle changes.)
+
+## [0.1.0] - 2026-06-23
+
+First stable release. Cumulative pre-release content is documented in the rc
+sections below; the change since rc2 is the reboot-recovery fix.
+
 ### Fixed
 - Reboot recovery no longer leaves a zombie `armed` record. Recovery was run as a
   detached pass at boot while the supervisor started in parallel; the supervisor
