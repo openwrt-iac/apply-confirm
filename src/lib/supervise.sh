@@ -29,7 +29,15 @@ ac_supervise() {
 		fi
 
 		f=$(ac_state_file "$token")
-		ac_set_field "$token" pid "$$"
+		# Stamp our pid under the lock, and only while still armed, so a
+		# concurrent ack/rollback removal (which holds the same lock) cannot be
+		# followed by ac_set_field re-creating the record into a zombie.
+		exec 9>"$AC_LOCK"
+		flock -w 10 9 2>/dev/null || true
+		if [ -f "$f" ] && [ "$(ac_get_field "$f" phase)" = "armed" ]; then
+			ac_set_field "$token" pid "$$"
+		fi
+		flock -u 9
 
 		# Count this armed apply down to its deadline. Bounded chunks so an ack
 		# (phase flips, or the record is removed) is noticed within one chunk and
