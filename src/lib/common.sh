@@ -19,6 +19,10 @@ AC_LOCK="${AC_LOCK:-/var/lock/apply-confirm.lock}"
 # which is exactly the "do not trust the wall clock yet" signal the boot hook
 # needs after a reboot with no RTC.
 AC_CLOCK_TRUST="${AC_CLOCK_TRUST:-/var/run/apply-confirm.clock-trusted}"
+# Per-boot marker (tmpfs): set after the daemon runs recovery once, so a
+# mid-uptime respawn resumes supervising instead of re-reconciling (which on an
+# untrusted clock would wrongly roll back an in-window apply). Cleared on reboot.
+AC_RECOVERED_FLAG="${AC_RECOVERED_FLAG:-/var/run/apply-confirm.recovered}"
 AC_DEFAULT_TIMEOUT="${AC_DEFAULT_TIMEOUT:-$(ac_config default_timeout 90)}"
 AC_MAX_TIMEOUT="${AC_MAX_TIMEOUT:-$(ac_config max_timeout 3600)}"
 AC_REBOOT_POLICY="${AC_REBOOT_POLICY:-$(ac_config reboot_policy rollback)}"

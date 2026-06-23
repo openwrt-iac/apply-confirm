@@ -11,6 +11,7 @@ export AC_TEST=1
 export AC_STATE_DIR="$SCRATCH/pending"
 export AC_LOCK="$SCRATCH/lock"
 export AC_CLOCK_TRUST="$SCRATCH/clock-trusted"
+export AC_RECOVERED_FLAG="$SCRATCH/recovered"
 export AC_DEFAULT_TIMEOUT=90
 export AC_MAX_TIMEOUT=3600
 export AC_REBOOT_POLICY=rollback

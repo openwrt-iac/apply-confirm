@@ -7,6 +7,9 @@
 [ "$ACTION" = stratum ] || exit 0
 touch /var/run/apply-confirm.clock-trusted
 if /usr/sbin/apply-confirm list 2>/dev/null | grep -q 'armed$'; then
+	# Clear the per-boot recovery marker so the restarted daemon re-runs recovery
+	# (now with a trusted clock) for an apply deferred at boot.
+	rm -f /var/run/apply-confirm.recovered
 	/etc/init.d/apply-confirm restart >/dev/null 2>&1
 fi
 exit 0

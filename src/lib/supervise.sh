@@ -15,7 +15,12 @@ ac_supervise() {
 	# daemon owns both recovery and supervision. Doing recovery here (not in a
 	# separate boot-time pass) avoids a race where a concurrent recover removes a
 	# record while this loop is stamping its pid, which left a zombie armed record.
-	ac_recover boot
+	# Gate on a per-boot tmpfs marker so a mid-uptime respawn just resumes (else
+	# an untrusted clock would make a respawn roll back an in-window apply).
+	if [ ! -e "$AC_RECOVERED_FLAG" ]; then
+		ac_recover boot
+		: > "$AC_RECOVERED_FLAG" 2>/dev/null || true
+	fi
 	while :; do
 		token=$(ac_find_armed 2>/dev/null) || token=""
 		if [ -z "$token" ]; then
