@@ -49,13 +49,18 @@ at a stale time, then sysntpd jumps the wall clock forward by years).
   `/etc/hotplug.d/ntp` `stratum` event, which sets `/var/run/apply-confirm.
   clock-trusted` (tmpfs, so absent again on the next boot).
 
-procd runs the supervisor for liveness (`respawn`): a killed supervisor comes
-back and re-derives its deadline from durable state; it exits cleanly once the
-apply is no longer armed. See `docs/hardening.md` risk R5.
+procd runs the supervisor as a single persistent daemon (`respawn`): a killed
+supervisor comes back and re-derives its deadline from durable state. It does not
+exit when idle (which would respawn-storm); it watches for the next armed apply.
+See `docs/hardening.md` risk R5.
 
 ## Boot recovery decision table
 
-Run early from the init `boot()` and again from the NTP hotplug hook.
+Run by the supervisor daemon as its first action on startup, so one process owns
+both recovery and supervision (no race between a separate boot-time recover pass
+and the daemon). The NTP hotplug hook restarts the daemon if an apply is still
+armed when the clock becomes trusted, so recovery re-runs as that same single
+actor.
 
 | Phase at boot | Clock | Condition | Action |
 |---------------|-------|-----------|--------|

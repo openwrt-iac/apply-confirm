@@ -11,6 +11,11 @@ AC_IDLE_POLL="${AC_IDLE_POLL:-2}"
 
 ac_supervise() {
 	local token f dm up phase remain
+	# Reconcile any apply that survived a reboot before watching, so this one
+	# daemon owns both recovery and supervision. Doing recovery here (not in a
+	# separate boot-time pass) avoids a race where a concurrent recover removes a
+	# record while this loop is stamping its pid, which left a zombie armed record.
+	ac_recover boot
 	while :; do
 		token=$(ac_find_armed 2>/dev/null) || token=""
 		if [ -z "$token" ]; then

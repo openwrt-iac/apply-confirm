@@ -26,4 +26,9 @@ it "remove_record deletes the state file"
 ac_remove_record "$_tok2"
 assert_false test -f "$_f2"
 
+it "set_field does not recreate a removed record"
+_tok3="ac_3000_cccccccc"; _f3=$(ac_state_file "$_tok3")
+ac_set_field "$_tok3" pid 5
+assert_false test -f "$_f3"
+
 ac_remove_record "$_tok"

@@ -9,12 +9,11 @@ STOP=89
 PROG=/usr/sbin/apply-confirm
 
 boot() {
-	# Recovery runs OFF the critical boot path. boot() executes synchronously in
-	# the rc.d sequence, so a slow or stuck rollback here would wedge every later
-	# service (dropbear, network) and lock the operator out: the exact outcome
-	# this package exists to prevent. Detach it; the box finishes booting and the
-	# rollback completes concurrently, ending in the restored config either way.
-	( "$PROG" __recover boot >/dev/null 2>&1 & )
+	# Just start the procd service. The supervisor daemon runs recovery as its
+	# first action (see ac_supervise), so a single process owns both recovery and
+	# supervision: no race between a separate boot-time recover pass and the
+	# daemon, and recovery stays off the synchronous rc.d critical path (so a slow
+	# rollback can never wedge later services).
 	start
 }
 

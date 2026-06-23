@@ -1,7 +1,12 @@
 # sysntpd fires an ntp hotplug event with ACTION=stratum once it achieves sync.
-# That is our "the wall clock can now be trusted" signal: mark it, then re-run
-# recovery so an apply that was deferred at boot under an untrusted clock gets
-# its real deadline decision.
+# That is our "the wall clock can now be trusted" signal: mark it, and if an
+# apply is still armed (e.g. one deferred at boot under an untrusted clock with
+# reboot_policy=rearm-on-trusted-clock), restart the supervisor so it re-runs
+# recovery as the single actor now that the clock is trusted. The restart keeps
+# recovery owned by one process (no parallel recover racing the daemon).
 [ "$ACTION" = stratum ] || exit 0
 touch /var/run/apply-confirm.clock-trusted
-/usr/sbin/apply-confirm __recover ntp
+if /usr/sbin/apply-confirm list 2>/dev/null | grep -q 'armed$'; then
+	/etc/init.d/apply-confirm restart >/dev/null 2>&1
+fi
+exit 0
