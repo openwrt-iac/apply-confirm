@@ -32,7 +32,12 @@ ac_get_field() {
 ac_set_field() {
 	# $1 token, $2 field, $3 value. Read-modify-write via rename. Used for numeric
 	# and enum fields (pid, phase, deadline_mono); not for free text.
-	local f tmp; f=$(ac_state_file "$1"); tmp="$f.$$.tmp"
+	# Never recreate a record that no longer exists: a concurrent rollback may
+	# have removed it, and recreating it from a stale in-memory read would leave a
+	# zombie. The caller only ever updates a record it already found.
+	local f tmp; f=$(ac_state_file "$1")
+	[ -f "$f" ] || return 1
+	tmp="$f.$$.tmp"
 	if grep -q "^$2=" "$f" 2>/dev/null; then
 		sed "s|^$2=.*|$2=$3|" "$f" > "$tmp"
 	else

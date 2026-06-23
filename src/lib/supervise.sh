@@ -11,6 +11,16 @@ AC_IDLE_POLL="${AC_IDLE_POLL:-2}"
 
 ac_supervise() {
 	local token f dm up phase remain
+	# Reconcile any apply that survived a reboot before watching, so this one
+	# daemon owns both recovery and supervision. Doing recovery here (not in a
+	# separate boot-time pass) avoids a race where a concurrent recover removes a
+	# record while this loop is stamping its pid, which left a zombie armed record.
+	# Gate on a per-boot tmpfs marker so a mid-uptime respawn just resumes (else
+	# an untrusted clock would make a respawn roll back an in-window apply).
+	if [ ! -e "$AC_RECOVERED_FLAG" ]; then
+		ac_recover boot
+		: > "$AC_RECOVERED_FLAG" 2>/dev/null || true
+	fi
 	while :; do
 		token=$(ac_find_armed 2>/dev/null) || token=""
 		if [ -z "$token" ]; then
@@ -19,7 +29,15 @@ ac_supervise() {
 		fi
 
 		f=$(ac_state_file "$token")
-		ac_set_field "$token" pid "$$"
+		# Stamp our pid under the lock, and only while still armed, so a
+		# concurrent ack/rollback removal (which holds the same lock) cannot be
+		# followed by ac_set_field re-creating the record into a zombie.
+		exec 9>"$AC_LOCK"
+		flock -w 10 9 2>/dev/null || true
+		if [ -f "$f" ] && [ "$(ac_get_field "$f" phase)" = "armed" ]; then
+			ac_set_field "$token" pid "$$"
+		fi
+		flock -u 9
 
 		# Count this armed apply down to its deadline. Bounded chunks so an ack
 		# (phase flips, or the record is removed) is noticed within one chunk and

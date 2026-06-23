@@ -7,8 +7,17 @@ primitive it ships RC-first; even minor releases soak as `-rc` before final.
 
 ## [Unreleased]
 
-### Added
-- (Reserved for next-cycle changes.)
+### Fixed
+- Reboot recovery no longer leaves a zombie `armed` record. Recovery was run as a
+  detached pass at boot while the supervisor started in parallel; the supervisor
+  could re-create (via its pid stamp) a record that recovery had just rolled back
+  and removed, leaving an armed record with no snapshot that wedged the
+  single-pending slot. Recovery now runs as the supervisor daemon's first action
+  (one process owns recovery and supervision), gated by a per-boot marker so a
+  mid-uptime respawn resumes supervising instead of re-reconciling (which on an
+  untrusted clock would have rolled back an in-window apply). `ac_set_field`
+  refuses to recreate a removed record, and the NTP hook re-reconciles via the
+  daemon. Found and validated in hardware testing.
 
 ## [0.1.0-rc2]
 

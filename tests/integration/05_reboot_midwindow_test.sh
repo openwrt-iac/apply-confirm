@@ -26,4 +26,14 @@ sleep 8
 now=$($SSH "uci get system.@system[0].hostname")
 [ "$now" = "$orig" ] || fail "boot recovery did not roll back the unconfirmed change (got $now)"
 
-echo "an unconfirmed change is rolled back after a reboot."
+# No zombie: recovery must REMOVE the record, not leave it armed. Regression
+# guard for the boot-time recover/supervisor race that re-created a deleted
+# record (snapshot gone, stale deadline) and wedged the single-pending slot.
+$SSH "apply-confirm list" | grep -q 'armed$' && fail "zombie armed record after boot recovery" || true
+
+# The single-pending slot must be free afterwards: a fresh stage must succeed
+# (exit 0), not be rejected as already_armed (exit 3).
+t=$($SSH "apply-confirm stage --timeout 10 --package system") || fail "slot not free after recovery (stage rejected)"
+$SSH "apply-confirm ack '$t' >/dev/null 2>&1"
+
+echo "an unconfirmed change is rolled back after a reboot, leaving no zombie."
