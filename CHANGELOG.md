@@ -7,6 +7,11 @@ primitive it ships RC-first; even minor releases soak as `-rc` before final.
 
 ## [Unreleased]
 
+### Added
+- (Reserved for next-cycle changes.)
+
+## [0.1.0-rc2]
+
 ### Changed
 - The default `--service` reload set is now a built-in deterministic map rather
   than a same-name guess: `dhcp`->dnsmasq+odhcpd, `wireless`->network,
